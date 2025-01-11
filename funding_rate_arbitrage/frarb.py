@@ -1,7 +1,9 @@
 """
 Main class of funding-rate-arbitrage
 """
+import asyncio
 import logging
+import time
 from datetime import datetime
 
 import ccxt
@@ -24,7 +26,7 @@ log = logging.getLogger("rich")
 
 class FundingRateArbitrage:
     def __init__(self):
-        self.exchanges = ["binance", "bybit", "okx", "bitget", "gate", "coinex"]
+        self.exchanges = ["binance", "bybit", "okx", "bitget", "gate", "huobi", "hyperliquid"]
         # commission
         self.is_taker = True
         self.by_token = False
@@ -40,19 +42,33 @@ class FundingRateArbitrage:
         Returns (dict): Dict of perpetual contract pair and funding rate.
 
         """
+        log.info(f"Fetching funding rates for {exchange}")
+
         ex = getattr(ccxt, exchange)()
         info = ex.load_markets()
-        perp = [p for p in info if info[p]["linear"]]
+        # log.info(info)
+        # log.info(f"market info: {info}")
+        """
+        Market Structure (https://docs.ccxt.com/#/README?id=market-structure)
+        
+            'linear':   true,         // the contract is a linear contract (settled in quote currency)
+            'contract': false,        // whether the market is a future, a perpetual swap, or an option
+        """
+        perp = [p for p in info if (info[p]["linear"] and info[p]["swap"])]
+        log.info(f"perp {perp}")
         fr_d = {}
         for p in perp:
             try:
                 fr_d[p] = ex.fetch_funding_rate(p)["fundingRate"]
             except ExchangeError:
+                log.info(f"perp: {p}")
                 log.exception(f"{p} is not perp.")
-        return fr_d
+
+        sorted_fr_d = {k: v for k, v in sorted(fr_d.items(), reverse=True, key=lambda item: item[1])}
+        return sorted_fr_d
 
     @staticmethod
-    def fetch_funding_rate_history(exchange: str, symbol: str) -> tuple:
+    async def fetch_funding_rate_history(exchange: str, symbol: str) -> tuple:
         """
         Fetch funding rates on perpetual contracts listed on the exchange.
 
